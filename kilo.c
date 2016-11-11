@@ -117,6 +117,8 @@ enum KEY_ACTION{
         CTRL_F = 6,         /* Ctrl-f */
         CTRL_H = 8,         /* Ctrl-h */
         TAB = 9,            /* Tab */
+        CTRL_J = 10,        /* Ctrl-J */
+        CTRL_K = 11,        /* Ctrl-K */
         CTRL_L = 12,        /* Ctrl+l */
         ENTER = 13,         /* Enter */
         CTRL_Q = 17,        /* Ctrl-q */
@@ -1186,6 +1188,12 @@ void editorMoveCursor(int key) {
             }
         }
         break;
+    case CTRL_J:
+        E.cx = 0;
+        break;
+    case CTRL_K:
+        E.cx = E.screencols-1;
+        break;
     }
     /* Fix cx if the current line has not enough chars. */
     filerow = E.rowoff+E.cy;
@@ -1266,6 +1274,8 @@ void editorProcessKeypress(int fd) {
     case ARROW_DOWN:
     case ARROW_LEFT:
     case ARROW_RIGHT:
+    case CTRL_J:
+    case CTRL_K:
         editorMoveCursor(c);
         break;
     case CTRL_L: /* ctrl+l, clear screen */
