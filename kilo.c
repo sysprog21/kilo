@@ -838,17 +838,41 @@ writeerr:
 struct abuf {
     char *b;
     int len;
+    int blen;
 };
 
-#define ABUF_INIT {NULL,0}
+void abInit(struct abuf *ab) {
+    ab->blen = (E.screenrows + 3) * E.screencols; // Approximation for maximum needed space.
+    ab->b = malloc(ab->blen);
+    ab->len = 0;
+    if (!ab->b) { /* Once more with a silly small buffer ... */
+        ab->b = malloc(256);
+        ab->blen = 256;
+        if (!ab->b) { /* Okay, cant run. */
+            printf("Out of memory.");
+            exit(1);
+        }
+    }
+}
 
 void abAppend(struct abuf *ab, const char *s, int len) {
-    char *new = realloc(ab->b,ab->len+len);
-
-    if (new == NULL) return;
-    memcpy(new+ab->len,s,len);
-    ab->b = new;
-    ab->len += len;
+    int nlen = ab->len + len;
+    if (nlen > ab->blen) {
+        /* Try to switch to a bigger buffer. */
+        int nblen = nlen + 256;
+        char *nb = malloc(nblen);
+        if (!nb) { /* Okay, keep the current buffer, write in parts. */
+            write(STDOUT_FILENO,ab->b,ab->len);
+            ab->len = 0;
+            nlen = len;
+        } else {
+            memcpy(nb, ab->b, ab->len);
+            free(ab->b);
+            ab->b = nb;
+        }
+    }
+    memcpy(ab->b+ab->len,s,len);
+    ab->len = nlen;
 }
 
 void abFree(struct abuf *ab) {
@@ -861,7 +885,7 @@ void editorRefreshScreen(void) {
     int y;
     erow *r;
     char buf[32];
-    struct abuf ab = ABUF_INIT;
+    struct abuf ab; abInit(&ab);
 
     abAppend(&ab,"\x1b[?25l",6); /* Hide cursor. */
     abAppend(&ab,"\x1b[H",3); /* Go home. */
