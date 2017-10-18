@@ -497,11 +497,11 @@ void editorUpdateSyntax(erow *row) {
 
     /* Propagate syntax change to the next row if the open commen
      * state changed. This may recursively affect all the following rows
-     * in the file. */
-    int oc = editorRowHasOpenComment(row);
-    if (row->hl_oc != oc && row->idx+1 < E.numrows)
+     * in the file. Gosh, atleast make it tail-callable... */
+    int prev_oc = row->hl_oc;
+    row->hl_oc = editorRowHasOpenComment(row);
+    if (row->hl_oc != prev_oc && row->idx+1 < E.numrows)
         editorUpdateSyntax(&E.row[row->idx+1]);
-    row->hl_oc = oc;
 }
 
 /* Maps syntax highlight token types to terminal colors. */
