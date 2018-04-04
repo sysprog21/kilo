@@ -70,8 +70,8 @@ struct editorSyntax {
     char **filematch;
     char **keywords;
     char singleline_comment_start[2];
-    char multiline_comment_start[3];
-    char multiline_comment_end[3];
+    char multiline_comment_start[4];
+    char multiline_comment_end[4];
     int flags;
 };
 
@@ -355,7 +355,7 @@ failed:
 /* ====================== Syntax highlight color scheme  ==================== */
 
 int is_separator(int c) {
-    return c == '\0' || isspace(c) || strchr(",.()+-/*=~%[];",c) != NULL;
+    return c == '\0' || isspace(c) || strchr(",.()+-/*=~%[];<>|&{}",c) != NULL;
 }
 
 /* Return true if the specified row last char is part of a multi line comment
@@ -401,7 +401,7 @@ void editorUpdateSyntax(erow *row) {
 
     while(*p) {
         /* Handle // comments. */
-        if (prev_sep && *p == scs[0] && *(p+1) == scs[1]) {
+        if (prev_sep && *p == scs[0] && *(p+1) == scs[1] && !in_string) {
             /* From here to end is a comment */
             memset(row->hl+i,HL_COMMENT,row->rsize-i);
             return;
@@ -410,7 +410,7 @@ void editorUpdateSyntax(erow *row) {
         /* Handle multi line comments. */
         if (in_comment) {
             row->hl[i] = HL_MLCOMMENT;
-            if (*p == mce[0] && *(p+1) == mce[1]) {
+            if (*p == mce[0] && *(p+1) == mce[1] && *(p+2) == mce[2]) {
                 row->hl[i+1] = HL_MLCOMMENT;
                 p += 2; i += 2;
                 in_comment = 0;
@@ -421,7 +421,7 @@ void editorUpdateSyntax(erow *row) {
                 p++; i++;
                 continue;
             }
-        } else if (*p == mcs[0] && *(p+1) == mcs[1]) {
+        } else if (*p == mcs[0] && *(p+1) == mcs[1] && !in_string) {
             row->hl[i] = HL_MLCOMMENT;
             row->hl[i+1] = HL_MLCOMMENT;
             p += 2; i += 2;
@@ -468,6 +468,8 @@ void editorUpdateSyntax(erow *row) {
             prev_sep = 0;
             continue;
         }
+
+        if (is_separator(*p)) row->hl[i] = HL_KEYWORD1;
 
         /* Handle keywords and lib calls */
         if (prev_sep) {
