@@ -166,6 +166,9 @@ char *C_HL_keywords[] = {
         /* A few C / C++ keywords */
         "switch","if","while","for","break","continue","return","else",
         "struct","union","typedef","static","enum","class",
+        /* C preprocessor directives */
+        "#define|","#endif|","#error|","#ifdef|","#ifndef|","#if|",
+        "#include|","#undef|",
         /* C types */
         "int|","long|","double|","float|","char|","unsigned|","signed|",
         "void|",NULL
