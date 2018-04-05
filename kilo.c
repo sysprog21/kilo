@@ -185,19 +185,15 @@ struct editorSyntax HLDB[] = {{/* C / C++ */
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 
-void disableRawMode(int fd)
-{
-    /* Don't even check the return value as it's too late. */
-    if (E.rawmode) {
-        tcsetattr(fd, TCSAFLUSH, &orig_termios);
-        E.rawmode = 0;
-    }
-}
-
 /* Called at exit to avoid remaining in raw mode. */
 void editorAtExit(void)
 {
-    disableRawMode(STDIN_FILENO);
+    /* clear screen */
+    write(STDOUT_FILENO, "\x1b[2J", 6);
+    /* go home */
+    write(STDOUT_FILENO, "\x1b[H", 4);
+    /* disable raw mode */
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
 /* Raw mode: 1960 magic shit. */
@@ -1302,7 +1298,6 @@ void editorProcessKeypress(int fd)
             quit_times--;
             return;
         }
-        printf("\033[2J\033[1;1H");
         exit(0);
         break;
     case CTRL_S: /* Ctrl-s */
@@ -1389,6 +1384,12 @@ void resizeHandler()
     sigprocmask(SIG_SETMASK, &prev_mask, NULL);
 }
 
+void signalHandler(int c)
+{
+    editorAtExit();
+    signal(c, SIG_DFL);
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -1400,6 +1401,7 @@ int main(int argc, char **argv)
     editorSelectSyntaxHighlight(argv[1]);
     editorOpen(argv[1]);
     enableRawMode(STDIN_FILENO);
+    signal(SIGSEGV, signalHandler);
     editorSetStatusMessage(
         "HELP: "
         "^S = save | ^Q = quit | ^F = find | "
