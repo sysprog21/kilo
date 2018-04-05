@@ -1269,13 +1269,8 @@ void editorMoveCursor(int key)
 
 /* Process events arriving from the standard input, which is, the user
  * is typing stuff on the terminal. */
-#define KILO_QUIT_TIMES 3
 void editorProcessKeypress(int fd)
 {
-    /* When the file is modified, requires Ctrl-q to be pressed N times
-     * before actually quitting. */
-    static int quit_times = KILO_QUIT_TIMES;
-
     int c = editorReadKey(fd);
     switch (c) {
     case ENTER: /* Enter */
@@ -1290,13 +1285,25 @@ void editorProcessKeypress(int fd)
         break;
     case CTRL_Q: /* Ctrl-q */
         /* Quit if the file was already saved. */
-        if (E.dirty && quit_times) {
-            editorSetStatusMessage(
-                "WARNING!!! File has unsaved changes. "
-                "Press Ctrl-Q %d more times to quit.",
-                quit_times);
-            quit_times--;
-            return;
+        while (E.dirty) {
+            editorSetStatusMessage("Save file Y/N/ESC?");
+            editorRefreshScreen();
+            int c = editorReadKey(fd);
+            if ((c == CTRL_C) || (c == ESC)) {
+                editorSetStatusMessage("");
+                return;
+            }
+            if ((c == 'y') || (c == 'Y')) {
+                if (editorSave())
+                    return; /* Failed save aborts. */
+                /* Display the success message. */
+                editorRefreshScreen();
+                sleep(1);
+                break;
+            }
+            if ((c == 'n') || (c == 'N')) {
+                break;
+            }
         }
         exit(0);
         break;
@@ -1344,8 +1351,6 @@ void editorProcessKeypress(int fd)
         editorInsertChar(c);
         break;
     }
-
-    quit_times = KILO_QUIT_TIMES; /* Reset it to the original value. */
 }
 
 int editorFileWasModified(void)
