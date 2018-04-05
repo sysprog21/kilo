@@ -111,18 +111,15 @@ static struct editorConfig E;
 enum KEY_ACTION {
     KEY_NULL = 0,    /* NULL */
     CTRL_C = 3,      /* Ctrl-c */
-    CTRL_D = 4,      /* Ctrl-d */
     CTRL_E = 5,      /* Ctrl-e  del line */
     CTRL_F = 6,      /* Ctrl-f */
     CTRL_H = 8,      /* Ctrl-h */
     TAB = 9,         /* Tab */
     CTRL_J = 10,     /* Ctrl-J */
     CTRL_K = 11,     /* Ctrl-K */
-    CTRL_L = 12,     /* Ctrl+l */
     ENTER = 13,      /* Enter */
     CTRL_Q = 17,     /* Ctrl-q */
     CTRL_S = 19,     /* Ctrl-s */
-    CTRL_U = 21,     /* Ctrl-u */
     ESC = 27,        /* Escape */
     BACKSPACE = 127, /* Backspace */
     /* The following are just soft codes, not really reported by the
@@ -1369,9 +1366,6 @@ void editorProcessKeypress(int fd)
     case CTRL_J:
     case CTRL_K:
         editorMoveCursor(c);
-        break;
-    case CTRL_L: /* ctrl+l, clear screen */
-        /* Just refresht the line as side effect. */
         break;
     case ESC:
         /* Nothing to do for ESC in this mode. */
