@@ -1427,8 +1427,9 @@ int main(int argc, char **argv)
     editorOpen(argv[1]);
     enableRawMode(STDIN_FILENO);
     editorSetStatusMessage(
-        "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find | Ctrl-E = erase "
-        "Line");
+        "HELP: "
+	"^S = save | ^Q = quit | ^F = find | "
+	"^E = erase line | ^J/^K = start/end");
 
     signal(SIGWINCH, resizeHandler);
 
