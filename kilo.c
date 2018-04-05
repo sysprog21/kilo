@@ -39,11 +39,11 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
-#include <sys/time.h>
 #include <sys/types.h>
 #include <termios.h>
 #include <time.h>
@@ -75,7 +75,7 @@ struct editorSyntax {
 };
 
 /* This structure represents a single line of the file we are editing. */
-typedef struct erow {
+typedef struct {
     int idx;           /* Row index in the file, zero-based. */
     int size;          /* Size of the row, excluding the null term. */
     int rsize;         /* Size of the rendered row. */
@@ -86,21 +86,19 @@ typedef struct erow {
                           check. */
 } erow;
 
-typedef struct hlcolor {
+typedef struct {
     int r, g, b;
 } hlcolor;
 
 struct editorConfig {
-    int cx, cy;     /* Cursor x and y position in characters */
-    int rowoff;     /* Offset of row displayed. */
-    int coloff;     /* Offset of column displayed. */
-    int screenrows; /* Number of rows that we can show */
-    int screencols; /* Number of cols that we can show */
-    int numrows;    /* Number of rows */
-    int rawmode;    /* Is terminal raw mode enabled? */
-    erow *row;      /* Rows */
-    int dirty;      /* File modified but not saved. */
-    char *filename; /* Currently open filename */
+    int cx, cy;                 /* Cursor x and y position in characters */
+    int rowoff, coloff;         /* Offset of row/column displayed. */
+    int screenrows, screencols; /* Number of rows/cols that we can show */
+    int numrows;                /* Number of rows */
+    int rawmode;                /* Is terminal raw mode enabled? */
+    erow *row;                  /* Rows */
+    int dirty;                  /* File modified but not saved. */
+    char *filename;             /* Currently open filename */
     char statusmsg[80];
     time_t statusmsg_time;
     struct editorSyntax *syntax; /* Current syntax highlight, or NULL. */
@@ -134,8 +132,6 @@ enum KEY_ACTION {
     PAGE_UP,
     PAGE_DOWN
 };
-
-void editorSetStatusMessage(const char *fmt, ...);
 
 /* =========================== Syntax highlights DB =========================
  *
@@ -180,6 +176,12 @@ struct editorSyntax HLDB[] = {{/* C / C++ */
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
 
 /* ======================= Low level terminal handling ====================== */
+
+#define panic(msg)   \
+    do {             \
+        perror(msg); \
+        exit(1);     \
+    } while (0)
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 
@@ -313,19 +315,16 @@ int editorReadKey(int fd)
 int getCursorPosition(int ifd, int ofd, int *rows, int *cols)
 {
     char buf[32];
-    unsigned int i = 0;
 
     /* Report cursor location */
     if (write(ofd, "\x1b[6n", 4) != 4)
         return -1;
 
     /* Read the response: ESC [ rows ; cols R */
-    while (i < sizeof(buf) - 1) {
-        if (read(ifd, buf + i, 1) != 1)
+    unsigned int i;
+    for (i = 0; i < sizeof(buf) - 1; i++) {
+        if ((read(ifd, buf + i, 1) != 1) || (buf[i] == 'R'))
             break;
-        if (buf[i] == 'R')
-            break;
-        i++;
     }
     buf[i] = '\0';
 
@@ -379,7 +378,7 @@ failed:
 
 /* ====================== Syntax highlight color scheme  ==================== */
 
-int is_separator(int c)
+bool is_separator(int c)
 {
     return c == '\0' || isspace(c) || strchr(",.()+-/*=~%[];<>|&{}", c) != NULL;
 }
@@ -387,13 +386,13 @@ int is_separator(int c)
 /* Return true if the specified row last char is part of a multi line comment
  * that starts at this row or at one before, and does not end at the end
  * of the row but spawns to the next row. */
-int editorRowHasOpenComment(erow *row)
+bool editorRowHasOpenComment(erow *row)
 {
     if (row->hl && row->rsize && row->hl[row->rsize - 1] == HL_MLCOMMENT &&
         (row->rsize < 2 || (row->render[row->rsize - 2] != '*' ||
                             row->render[row->rsize - 1] != '/')))
-        return 1;
-    return 0;
+        return true;
+    return false;
 }
 
 /* Set every byte of row->hl (that corresponds to every character in the line)
@@ -414,12 +413,8 @@ void editorUpdateSyntax(erow *row)
     char *mce = E.syntax->multiline_comment_end;
 
     /* Point to the first non-space char. */
-    p = row->render;
-    i = 0; /* Current char offset */
-    while (*p && isspace(*p)) {
-        p++;
-        i++;
-    }
+    for (p = row->render, i = 0; *p && isspace(*p); p++, i++)
+        ;
     prev_sep = 1;   /* Tell the parser if 'i' points to start of word. */
     in_string = 0;  /* Are we inside "" or '' ? */
     in_comment = 0; /* Are we inside multi-line comment? */
@@ -578,17 +573,14 @@ void editorSelectSyntaxHighlight(char *filename)
 {
     for (unsigned int j = 0; j < HLDB_ENTRIES; j++) {
         struct editorSyntax *s = HLDB + j;
-        unsigned int i = 0;
-        while (s->filematch[i]) {
+        for (unsigned int i = 0; s->filematch[i]; i++) {
             char *p;
             int patlen = strlen(s->filematch[i]);
-            if ((p = strstr(filename, s->filematch[i])) != NULL) {
-                if (s->filematch[i][0] != '.' || p[patlen] == '\0') {
-                    E.syntax = s;
-                    return;
-                }
+            if ((p = strstr(filename, s->filematch[i])) &&
+                (s->filematch[i][0] != '.' || p[patlen] == '\0')) {
+                E.syntax = s;
+                return;
             }
-            i++;
         }
     }
 }
@@ -598,18 +590,18 @@ void editorSelectSyntaxHighlight(char *filename)
 /* Update the rendered version and the syntax highlight of a row. */
 void editorUpdateRow(erow *row)
 {
-    int tabs = 0, nonprint = 0, j, idx;
+    int tabs = 0, nonprint = 0, idx;
 
     /* Create a version of the row we can directly print on the screen,
      * respecting tabs, substituting non printable characters with '?'. */
     free(row->render);
-    for (j = 0; j < row->size; j++)
+    for (int j = 0; j < row->size; j++)
         if (row->chars[j] == TAB)
             tabs++;
 
     row->render = malloc(row->size + tabs * 8 + nonprint * 9 + 1);
     idx = 0;
-    for (j = 0; j < row->size; j++) {
+    for (int j = 0; j < row->size; j++) {
         if (row->chars[j] == TAB) {
             row->render[idx++] = ' ';
             while ((idx + 1) % 8 != 0)
@@ -651,24 +643,19 @@ void editorInsertRow(int at, char *s, size_t len)
     E.dirty++;
 }
 
-/* Free row's heap allocated stuff. */
-void editorFreeRow(erow *row)
-{
-    free(row->render);
-    free(row->chars);
-    free(row->hl);
-}
-
 /* Remove the row at the specified position, shifting the remainign on the
  * top. */
 void editorDelRow(int at)
 {
-    erow *row;
-
     if (at >= E.numrows)
         return;
-    row = E.row + at;
-    editorFreeRow(row);
+
+    erow *row = E.row + at;
+    /* Free row's heap allocated stuff */
+    free(row->render);
+    free(row->chars);
+    free(row->hl);
+
     memmove(E.row + at, E.row + at + 1,
             sizeof(E.row[0]) * (E.numrows - at - 1));
     for (int j = at; j < E.numrows - 1; j++)
@@ -685,16 +672,15 @@ char *editorRowsToString(int *buflen)
 {
     char *buf = NULL, *p;
     int totlen = 0;
-    int j;
 
     /* Compute count of bytes */
-    for (j = 0; j < E.numrows; j++)
+    for (int j = 0; j < E.numrows; j++)
         totlen += E.row[j].size + 1; /* +1 is for "\n" at end of every row */
     *buflen = totlen;
     totlen++; /* Also make space for nulterm */
 
     p = buf = malloc(totlen);
-    for (j = 0; j < E.numrows; j++) {
+    for (int j = 0; j < E.numrows; j++) {
         memcpy(p, E.row[j].chars, E.row[j].size);
         p += E.row[j].size;
         *p = '\n';
@@ -737,17 +723,6 @@ void editorRowAppendString(erow *row, char *s, size_t len)
     row->size += len;
     row->chars[row->size] = '\0';
     editorUpdateRow(row);
-    E.dirty++;
-}
-
-/* Delete the character at offset 'at' from the specified row. */
-void editorRowDelChar(erow *row, int at)
-{
-    if (row->size <= at)
-        return;
-    memmove(row->chars + at, row->chars + at + 1, row->size - at);
-    editorUpdateRow(row);
-    row->size--;
     E.dirty++;
 }
 
@@ -838,7 +813,14 @@ void editorDelChar()
             E.coloff += shift;
         }
     } else {
-        editorRowDelChar(row, filecol - 1);
+        /* Delete character at offset (filecol - 1) from specified row. */
+        if (row->size > (filecol - 1)) {
+            memmove(row->chars + (filecol - 1), row->chars + (filecol - 1) + 1,
+                    row->size - (filecol - 1));
+            editorUpdateRow(row);
+            row->size--;
+            E.dirty++;
+        }
         if (E.cx == 0 && E.coloff)
             E.coloff--;
         else
@@ -853,18 +835,14 @@ void editorDelChar()
  * or 1 on error. */
 int editorOpen(char *filename)
 {
-    FILE *fp;
-
     E.dirty = 0;
     free(E.filename);
     E.filename = strdup(filename);
 
-    fp = fopen(filename, "r");
+    FILE *fp = fopen(filename, "r");
     if (!fp) {
-        if (errno != ENOENT) {
-            perror("Opening file");
-            exit(1);
-        }
+        if (errno != ENOENT)
+            panic("Opening file");
         return 1;
     }
 
@@ -880,6 +858,17 @@ int editorOpen(char *filename)
     fclose(fp);
     E.dirty = 0;
     return 0;
+}
+
+/* Set an editor status message for the second line of the status, at the
+ * end of the screen. */
+void editorSetStatusMessage(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
+    va_end(ap);
+    E.statusmsg_time = time(NULL);
 }
 
 /* Save the current file on disk. Return 0 on success, 1 on error. */
@@ -933,10 +922,8 @@ void abInit(struct abuf *ab)
     if (!ab->b) { /* Once more with a silly small buffer ... */
         ab->b = malloc(256);
         ab->blen = 256;
-        if (!ab->b) { /* Okay, cant run. */
-            printf("Out of memory.");
-            exit(1);
-        }
+        if (!ab->b)
+            panic("Out of memory.");
     }
 }
 
@@ -970,7 +957,6 @@ void abFree(struct abuf *ab)
  * starting from the logical state of the editor in the global state 'E'. */
 void editorRefreshScreen(void)
 {
-    int y;
     erow *r;
     char buf[32];
     struct abuf ab;
@@ -978,7 +964,7 @@ void editorRefreshScreen(void)
 
     abAppend(&ab, "\x1b[?25l", 6); /* Hide cursor. */
     abAppend(&ab, "\x1b[H", 3);    /* Go home. */
-    for (y = 0; y < E.screenrows; y++) {
+    for (int y = 0; y < E.screenrows; y++) {
         int filerow = E.rowoff + y;
 
         if (filerow >= E.numrows) {
@@ -1062,12 +1048,11 @@ void editorRefreshScreen(void)
     /* Put cursor at its current position. Note that the horizontal position
      * at which the cursor is displayed may be different compared to 'E.cx'
      * because of TABs. */
-    int j;
     int cx = 1;
     int filerow = E.rowoff + E.cy;
     erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
     if (row) {
-        for (j = E.coloff; j < (E.cx + E.coloff); j++) {
+        for (int j = E.coloff; j < (E.cx + E.coloff); j++) {
             if (j < row->size && row->chars[j] == TAB)
                 cx += 7 - ((cx) % 8);
             cx++;
@@ -1078,17 +1063,6 @@ void editorRefreshScreen(void)
     abAppend(&ab, "\x1b[?25h", 6); /* Show cursor. */
     write(STDOUT_FILENO, ab.b, ab.len);
     abFree(&ab);
-}
-
-/* Set an editor status message for the second line of the status, at the
- * end of the screen. */
-void editorSetStatusMessage(const char *fmt, ...)
-{
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
-    va_end(ap);
-    E.statusmsg_time = time(NULL);
 }
 
 /* =============================== Find mode ================================ */
@@ -1109,6 +1083,7 @@ void endOfLine()
     if (row)
         E.cx = row->size;
 }
+
 void editorFind(int fd)
 {
     char query[KILO_QUERY_LEN + 1] = {0};
@@ -1169,9 +1144,9 @@ void editorFind(int fd)
         if (find_next) {
             char *match = NULL;
             int match_offset = 0;
-            int i, current = last_match;
+            int current = last_match;
 
-            for (i = 0; i < E.numrows; i++) {
+            for (int i = 0; i < E.numrows; i++) {
                 current += find_next;
                 if (current == -1)
                     current = E.numrows - 1;
@@ -1385,19 +1360,19 @@ int editorFileWasModified(void)
 
 void initEditor(void)
 {
-    E.cx = 0;
-    E.cy = 0;
-    E.rowoff = 0;
-    E.coloff = 0;
-    E.numrows = 0;
-    E.row = NULL;
-    E.dirty = 0;
-    E.filename = NULL;
-    E.syntax = NULL;
+    /* clang-format off */
+    E = (struct editorConfig){
+        .cx = 0, .cy = 0,
+        .rowoff = 0, .coloff = 0,
+        .numrows = 0, .row = NULL,
+        .dirty = 0,
+        .filename = NULL,
+        .syntax = NULL,
+    };
+    /* clang-format on */
     if (getWindowSize(STDIN_FILENO, STDOUT_FILENO, &E.screenrows,
                       &E.screencols) == -1) {
-        perror("Unable to query the screen for size (columns / rows)");
-        exit(1);
+        panic("Unable to query the screen for size (columns / rows)");
     }
     E.screenrows -= 2; /* Get room for status bar. */
 }
@@ -1406,7 +1381,6 @@ void initEditor(void)
 void resizeHandler()
 {
     sigset_t mask, prev_mask;
-    /* TEMPORARY FIX, NOT ASYNC-SAFE */
     sigfillset(&mask);
     sigprocmask(SIG_BLOCK, &mask, &prev_mask);
     getWindowSize(STDIN_FILENO, STDOUT_FILENO, &E.screenrows, &E.screencols);
@@ -1428,8 +1402,8 @@ int main(int argc, char **argv)
     enableRawMode(STDIN_FILENO);
     editorSetStatusMessage(
         "HELP: "
-	"^S = save | ^Q = quit | ^F = find | "
-	"^E = erase line | ^J/^K = start/end");
+        "^S = save | ^Q = quit | ^F = find | "
+        "^E = erase line | ^J/^K = start/end");
 
     signal(SIGWINCH, resizeHandler);
 
