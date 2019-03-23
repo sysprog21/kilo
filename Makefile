@@ -1,9 +1,13 @@
 CC ?= gcc
+CFLAGS = -O2 -pipe
+CFLAGS += -Wall -W -pedantic -std=c99
 
-all: kilo
+TARGET = kilo
 
-kilo: kilo.c
-	$(CC) -O2 -pipe $(CFLAGS) -o kilo kilo.c -Wall -W -pedantic -std=c99
+all: $(TARGET)
+
+$(TARGET): $(TARGET).c
+	$(CC) $(CFLAGS) -o $@ $<
 
 clean:
-	rm kilo
+	$(RM) $(TARGET)
