@@ -106,18 +106,19 @@ struct editorConfig {
 
 static struct editorConfig E;
 
+/*
+ * The CTRL_ macro bitwise-ANDs a character with the value 00011111, in
+ * binary. In other words, it sets the upper 3 bits of the character to 0.
+ * This mirrors what the Ctrl key does in the terminal: it strips the 6th and
+ * 7th bits from whatever key you press in combination with Ctrl, and sends
+ * that.
+ */
+#define CTRL_(k) ((k) & (0x1f))
+
 enum KEY_ACTION {
     KEY_NULL = 0,    /* NULL */
-    CTRL_C = 3,      /* Ctrl-c */
-    CTRL_E = 5,      /* Ctrl-e  del line */
-    CTRL_F = 6,      /* Ctrl-f */
-    CTRL_H = 8,      /* Ctrl-h */
     TAB = 9,         /* Tab */
-    CTRL_J = 10,     /* Ctrl-J */
-    CTRL_K = 11,     /* Ctrl-K */
     ENTER = 13,      /* Enter */
-    CTRL_Q = 17,     /* Ctrl-q */
-    CTRL_S = 19,     /* Ctrl-s */
     ESC = 27,        /* Escape */
     BACKSPACE = 127, /* Backspace */
     /* The following are just soft codes, not really reported by the
@@ -1108,12 +1109,12 @@ void editorFind(int fd)
         editorRefreshScreen();
 
         int c = editorReadKey(fd);
-        if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+        if (c == DEL_KEY || c == CTRL_('h') || c == BACKSPACE) {
             if (qlen != 0)
                 query[--qlen] = '\0';
             last_match = -1;
-        } else if (c == ESC || c == CTRL_C || c == ENTER) {
-            if (c == ESC || c == CTRL_C) {
+        } else if (c == ESC || c == CTRL_('c') || c == ENTER) {
+            if (c == ESC || c == CTRL_('c')) {
                 E.cx = saved_cx;
                 E.cy = saved_cy;
                 E.coloff = saved_coloff;
@@ -1246,10 +1247,10 @@ void editorMoveCursor(int key)
             }
         }
         break;
-    case CTRL_J:
+    case CTRL_('j'):
         E.cx = 0;
         break;
-    case CTRL_K:
+    case CTRL_('k'):
         E.cx = E.screencols - 1;
         break;
     }
@@ -1276,20 +1277,20 @@ void editorProcessKeypress(int fd)
     case ENTER: /* Enter */
         editorInsertNewline();
         break;
-    case CTRL_C: /* Ctrl-c */
+    case CTRL_('c'): /* Ctrl-c */
         /* We ignore ctrl-c, it can't be so simple to lose the changes
          * to the edited file. */
         break;
-    case CTRL_E: /* Ctrl-e */
+    case CTRL_('e'): /* Ctrl-e */
         editorDelRow(E.rowoff + E.cy);
         break;
-    case CTRL_Q: /* Ctrl-q */
+    case CTRL_('q'): /* Ctrl-q */
         /* Quit if the file was already saved. */
         while (E.dirty) {
             editorSetStatusMessage("Save file Y/N/ESC?");
             editorRefreshScreen();
             int c = editorReadKey(fd);
-            if ((c == CTRL_C) || (c == ESC)) {
+            if ((c == CTRL_('c')) || (c == ESC)) {
                 editorSetStatusMessage("");
                 return;
             }
@@ -1307,14 +1308,14 @@ void editorProcessKeypress(int fd)
         }
         exit(0);
         break;
-    case CTRL_S: /* Ctrl-s */
+    case CTRL_('s'): /* Ctrl-s */
         editorSave();
         break;
-    case CTRL_F:
+    case CTRL_('f'):
         editorFind(fd);
         break;
-    case BACKSPACE: /* Backspace */
-    case CTRL_H:    /* Ctrl-h */
+    case BACKSPACE:  /* Backspace */
+    case CTRL_('h'): /* Ctrl-h */
     case DEL_KEY:
         editorDelChar();
         break;
@@ -1340,8 +1341,8 @@ void editorProcessKeypress(int fd)
     case ARROW_DOWN:
     case ARROW_LEFT:
     case ARROW_RIGHT:
-    case CTRL_J:
-    case CTRL_K:
+    case CTRL_('j'):
+    case CTRL_('k'):
         editorMoveCursor(c);
         break;
     case ESC:
